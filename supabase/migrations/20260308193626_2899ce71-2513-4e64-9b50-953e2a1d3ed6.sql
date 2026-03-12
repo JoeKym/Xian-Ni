@@ -1,0 +1,1 @@
+INSERT INTO public.site_settings (key, value) VALUES ('maintenance_eta', '') ON CONFLICT (key) DO NOTHING;
