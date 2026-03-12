@@ -45,7 +45,7 @@ const Index = () => {
 
   useEffect(() => {
     const fetchStats = async () => {
-      const { data } = await supabase.from("reviews").select("page_path, rating");
+      const { data } = await supabase.from("reviews").select("page_path, rating").neq("page_path", "/_contact_inbox");
       if (!data) return;
       const stats: Record<string, { count: number; sum: number }> = {};
       data.forEach((r: any) => {

@@ -880,10 +880,12 @@ function ContactsTab({
   messages,
   onMarkRead,
   onDelete,
+  onDeleteAll,
 }: {
   messages: ContactMessage[];
-  onMarkRead: (id: number) => void;
-  onDelete: (id: number) => void;
+  onMarkRead: (id: string) => void;
+  onDelete: (id: string) => void;
+  onDeleteAll: () => void;
 }) {
   const unread = messages.filter((m) => !m.read).length;
   return (
@@ -900,6 +902,18 @@ function ContactsTab({
         </CardTitle>
         <CardDescription>Messages submitted via the Contact page</CardDescription>
       </CardHeader>
+      {messages.length > 0 && (
+        <div className="px-6 pb-2 flex justify-end">
+          <Button
+            variant="destructive"
+            size="sm"
+            className="gap-1.5 text-xs"
+            onClick={onDeleteAll}
+          >
+            <Trash2 size={12} /> Delete All ({messages.length})
+          </Button>
+        </div>
+      )}
       <CardContent>
         {messages.length === 0 ? (
           <p className="text-muted-foreground text-sm">No contact messages yet.</p>
@@ -1150,6 +1164,14 @@ export default function AdminPage() {
     toast.success("Message deleted");
   };
 
+  const handleDeleteAllContacts = async () => {
+    if (!window.confirm(`Delete all ${contactMessages.length} contact message(s)? This cannot be undone.`)) return;
+    const { error } = await supabase.from("reviews").delete().eq("page_path", "/_contact_inbox");
+    if (error) { toast.error("Failed to delete all messages"); return; }
+    setContactMessages([]);
+    toast.success("All contact messages deleted");
+  };
+
   const handleToggleMaintenance = async () => {
     setTogglingMaintenance(true);
     const newValue = maintenanceMode ? "false" : "true";
@@ -1309,6 +1331,7 @@ export default function AdminPage() {
                 messages={contactMessages}
                 onMarkRead={handleMarkContactRead}
                 onDelete={handleDeleteContact}
+                onDeleteAll={handleDeleteAllContacts}
               />
             </TabsContent>
           </Tabs>

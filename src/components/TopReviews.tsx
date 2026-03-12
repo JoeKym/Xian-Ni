@@ -28,6 +28,7 @@ export function TopReviews() {
         .from("reviews")
         .select("*")
         .gte("rating", 4)
+        .neq("page_path", "/_contact_inbox")
         .order("rating", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(5);
