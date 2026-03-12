@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { Layout } from "@/components/Layout";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/components/AuthProvider";
-import { Users, Send, Crown, Shield, UserMinus, LogOut, MessageCircle, FileText, ArrowLeft, Camera, UserPlus, Flag, ScrollText, AlertTriangle, Heart } from "lucide-react";
+import { Users, Send, Crown, Shield, UserMinus, LogOut, MessageCircle, FileText, ArrowLeft, Camera, UserPlus, Flag, ScrollText, AlertTriangle, Heart, Trash2, Sparkles } from "lucide-react";
 import { PostActions } from "@/components/PostActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,6 +83,34 @@ export default function CommunityDetail() {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportUserId, setReportUserId] = useState<string | null>(null);
   const [reportReason, setReportReason] = useState("");
+
+  // AI violation detection state
+  const VIOLATION_KEYWORDS: Record<string, { label: string; severity: "minor" | "moderate" | "severe"; template: string }> = {
+    spam: { label: "Spam", severity: "minor", template: "This user is repeatedly posting off-topic spam content, violating guideline #3 (no spam or self-promotion)." },
+    "self-promotion": { label: "Self-Promotion", severity: "minor", template: "This user is promoting external content without permission, violating guideline #3." },
+    spoiler: { label: "Spoiler", severity: "minor", template: "This user posted unmarked spoilers, violating guideline #4 (spoilers must be clearly marked)." },
+    pirac: { label: "Piracy", severity: "moderate", template: "This user shared links to pirated/unofficial content, violating guideline #5." },
+    harass: { label: "Harassment", severity: "severe", template: "This user is engaging in harassment and personal attacks against community members, violating guideline #1." },
+    bully: { label: "Bullying", severity: "severe", template: "This user is bullying and targeting other members, violating guideline #1." },
+    "hate speech": { label: "Hate Speech", severity: "severe", template: "This user posted hate speech targeting members based on identity, violating guideline #1." },
+    slur: { label: "Slurs", severity: "severe", template: "This user used discriminatory slurs against community members, violating guideline #1." },
+    threat: { label: "Threats", severity: "severe", template: "This user made explicit threats against community members — immediate action required. Violates guideline #1." },
+    flood: { label: "Flooding", severity: "minor", template: "This user is flooding the chat with repeated messages, disrupting other members, violating guideline #3." },
+    "off-topic": { label: "Off-Topic", severity: "minor", template: "This user consistently posts content unrelated to the community's topic, violating guideline #2." },
+  };
+
+  const detectViolations = (text: string) => {
+    const lower = text.toLowerCase();
+    return Object.entries(VIOLATION_KEYWORDS).filter(([key]) => lower.includes(key)).map(([, v]) => v);
+  };
+
+  const getSeverity = (text: string): "minor" | "moderate" | "severe" | null => {
+    const matches = detectViolations(text);
+    if (matches.some(m => m.severity === "severe")) return "severe";
+    if (matches.some(m => m.severity === "moderate")) return "moderate";
+    if (matches.length > 0) return "minor";
+    return null;
+  };
 
   // Likes state
   const [postLikeCounts, setPostLikeCounts] = useState<Record<string, number>>({});
@@ -309,11 +337,32 @@ export default function CommunityDetail() {
       reported_by: user.id,
       reason: reportReason.trim(),
     });
-    if (error) toast.error("Failed to submit report");
-    else toast.success("Report submitted. A leader/admin will review it.");
+    if (error) { toast.error("Failed to submit report"); return; }
+
+    // Auto-flag severe violations to admin with AI-FLAGGED prefix
+    if (getSeverity(reportReason) === "severe") {
+      await supabase.from("community_reports").insert({
+        community_id: id,
+        reported_user_id: reportUserId,
+        reported_by: user.id,
+        reason: `[AI-FLAGGED 🚨 SEVERE] ${reportReason.trim()}`,
+      });
+    }
+
+    toast.success("Report submitted. A leader/admin will review it.");
     setReportOpen(false);
     setReportReason("");
     setReportUserId(null);
+  };
+
+  // Delete community (creator only)
+  const handleDeleteCommunity = async () => {
+    if (!user || !id || !community) return;
+    if (!window.confirm(`Permanently delete "${community.name}"? This cannot be undone. All members, posts and messages will be lost.`)) return;
+    const { error } = await supabase.from("communities").update({ is_active: false }).eq("id", id);
+    if (error) { toast.error("Failed to delete community"); return; }
+    toast.success("Community deleted.");
+    navigate("/communities");
   };
 
   // Save guidelines
@@ -408,6 +457,11 @@ export default function CommunityDetail() {
                   {isMember && !isLeader && (
                     <Button onClick={handleLeave} variant="outline" size="sm" className="gap-1">
                       <LogOut size={12} /> Leave
+                    </Button>
+                  )}
+                  {user && community && user.id === community.created_by && (
+                    <Button onClick={handleDeleteCommunity} variant="destructive" size="sm" className="gap-1">
+                      <Trash2 size={12} /> Delete Community
                     </Button>
                   )}
                   {isMember && (
@@ -671,14 +725,54 @@ export default function CommunityDetail() {
           </DialogHeader>
           <div className="space-y-3 mt-2">
             <p className="text-xs text-muted-foreground font-body">
-              Describe the guideline violation. Reports are reviewed by community leaders and admins. Violators may be suspended or banned.
+              Describe the guideline violation. Reports are reviewed by community leaders and admins.
             </p>
-            <Textarea
-              placeholder="Describe the violation..."
-              value={reportReason}
-              onChange={e => setReportReason(e.target.value.slice(0, 1000))}
-              rows={3}
-            />
+
+            {/* AI Suggestion Chips */}
+            <div className="flex flex-wrap gap-1.5">
+              <span className="text-[10px] text-muted-foreground font-heading flex items-center gap-1"><Sparkles size={10} className="text-primary" /> Quick tags:</span>
+              {Object.entries(VIOLATION_KEYWORDS).map(([key, v]) => (
+                <button
+                  key={key}
+                  onClick={() => setReportReason(v.template)}
+                  className={`text-[10px] font-heading px-2 py-0.5 rounded-full border transition-colors ${
+                    v.severity === "severe" ? "border-destructive/50 text-destructive hover:bg-destructive/10" :
+                    v.severity === "moderate" ? "border-amber-500/50 text-amber-500 hover:bg-amber-500/10" :
+                    "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  }`}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative">
+              <Textarea
+                placeholder="Describe the violation..."
+                value={reportReason}
+                onChange={e => setReportReason(e.target.value.slice(0, 1000))}
+                rows={4}
+              />
+              {/* Severity badge */}
+              {getSeverity(reportReason) && (
+                <div className={`absolute bottom-2 right-2 text-[10px] font-heading px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                  getSeverity(reportReason) === "severe" ? "bg-destructive/20 text-destructive" :
+                  getSeverity(reportReason) === "moderate" ? "bg-amber-500/20 text-amber-500" :
+                  "bg-muted text-muted-foreground"
+                }`}>
+                  <AlertTriangle size={9} />
+                  {getSeverity(reportReason) === "severe" ? "Severe violation" :
+                   getSeverity(reportReason) === "moderate" ? "Moderate violation" : "Minor violation"}
+                </div>
+              )}
+            </div>
+
+            {getSeverity(reportReason) === "severe" && (
+              <p className="text-[10px] text-destructive font-body flex items-center gap-1">
+                <AlertTriangle size={10} /> Severe violations are automatically escalated to admin.
+              </p>
+            )}
+
             <Button onClick={handleReport} disabled={!reportReason.trim()} className="w-full" variant="destructive">
               Submit Report
             </Button>

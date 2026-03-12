@@ -107,6 +107,15 @@ interface AdminReview {
   created_at: string;
 }
 
+interface AdminCommunity {
+  id: string;
+  name: string;
+  is_active: boolean;
+  category: string;
+  created_by: string;
+  created_at: string;
+}
+
 function parseContactReview(row: any): ContactMessage {
   const parts = (row.content as string).split("|||");
   return {
@@ -553,15 +562,20 @@ function NotificationsTab({ notifications, onDelete, onSend }: {
   );
 }
 
-function ModerationTab({ suspensions, profiles, onLift, onSuspend, onBan }: {
+function ModerationTab({ suspensions, profiles, communities, onLift, onSuspend, onBan, onBanCommunity, onRestoreCommunity }: {
   suspensions: Suspension[];
   profiles: Profile[];
+  communities: AdminCommunity[];
   onLift: (id: string) => void;
   onSuspend: (userId: string, reason: string) => void;
   onBan: (userId: string, reason: string) => void;
+  onBanCommunity: (id: string, reason: string) => void;
+  onRestoreCommunity: (id: string) => void;
 }) {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [reason, setReason] = useState("");
+  const [selectedCommunityId, setSelectedCommunityId] = useState("");
+  const [communityReason, setCommunityReason] = useState("");
 
   const getUserName = (userId: string) => {
     const p = profiles.find((pr) => pr.user_id === userId);
@@ -605,6 +619,60 @@ function ModerationTab({ suspensions, profiles, onLift, onSuspend, onBan }: {
               <Ban size={14} /> Ban Permanently
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Community Ban */}
+      <Card className="border-border">
+        <CardHeader>
+          <CardTitle className="font-heading text-lg flex items-center gap-2">
+            <Ban size={16} className="text-destructive" /> Community Management
+          </CardTitle>
+          <CardDescription>Ban communities that violate platform guidelines</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Select value={selectedCommunityId} onValueChange={setSelectedCommunityId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select an active community..." />
+            </SelectTrigger>
+            <SelectContent>
+              {communities.filter(c => c.is_active).map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name} <span className="text-muted-foreground text-xs ml-1 capitalize">({c.category})</span></SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input placeholder="Reason for ban (e.g. guidelines violation)" value={communityReason} onChange={(e) => setCommunityReason(e.target.value)} />
+          <Button
+            variant="destructive"
+            onClick={() => { if (selectedCommunityId && communityReason) { onBanCommunity(selectedCommunityId, communityReason); setSelectedCommunityId(""); setCommunityReason(""); } }}
+            disabled={!selectedCommunityId || !communityReason}
+            className="gap-2"
+          >
+            <Ban size={14} /> Ban Community
+          </Button>
+
+          {/* Banned communities list */}
+          {communities.filter(c => !c.is_active).length > 0 && (
+            <div className="mt-4 space-y-2">
+              <p className="text-xs font-heading text-muted-foreground uppercase tracking-wider">Banned Communities ({communities.filter(c => !c.is_active).length})</p>
+              {communities.filter(c => !c.is_active).map(c => (
+                <div key={c.id} className="flex items-center justify-between p-3 rounded-lg border border-destructive/20 bg-destructive/5">
+                  <div>
+                    <span className="font-heading text-sm text-foreground">{c.name}</span>
+                    <span className="text-xs text-muted-foreground ml-2 capitalize">({c.category})</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 text-green-500 border-green-500/30 hover:bg-green-500/10 h-7 text-xs"
+                    onClick={() => onRestoreCommunity(c.id)}
+                  >
+                    <Check size={12} /> Restore
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -1088,13 +1156,14 @@ export default function AdminPage() {
   const [reports, setReports] = useState<CommunityReport[]>([]);
   const [contactMessages, setContactMessages] = useState<ContactMessage[]>([]);
   const [adminReviews, setAdminReviews] = useState<AdminReview[]>([]);
+  const [adminCommunities, setAdminCommunities] = useState<AdminCommunity[]>([]);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [maintenanceEta, setMaintenanceEta] = useState("");
   const [togglingMaintenance, setTogglingMaintenance] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
-      const [pRes, cRes, vRes, pvRes, nRes, sRes, aRes, rRes, cmRes, revRes] = await Promise.all([
+      const [pRes, cRes, vRes, pvRes, nRes, sRes, aRes, rRes, cmRes, revRes, comRes] = await Promise.all([
         supabase.from("profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("comments").select("*").order("created_at", { ascending: false }),
         supabase.from("active_visitors").select("*"),
@@ -1105,6 +1174,7 @@ export default function AdminPage() {
         supabase.from("community_reports").select("*").order("created_at", { ascending: false }),
         supabase.from("reviews").select("*").eq("page_path", "/_contact_inbox").order("created_at", { ascending: false }),
         supabase.from("reviews").select("*").neq("page_path", "/_contact_inbox").order("created_at", { ascending: false }),
+        supabase.from("communities").select("id, name, is_active, category, created_by, created_at").order("created_at", { ascending: false }),
       ]);
       if (pRes.data) setProfiles(pRes.data as Profile[]);
       if (cRes.data) setComments(cRes.data as Comment[]);
@@ -1115,6 +1185,7 @@ export default function AdminPage() {
       if (aRes.data) setAppeals(aRes.data as Appeal[]);
       if (cmRes.data) setContactMessages((cmRes.data as any[]).map(parseContactReview));
       if (revRes.data) setAdminReviews(revRes.data as AdminReview[]);
+      if (comRes.data) setAdminCommunities(comRes.data as AdminCommunity[]);
       if (rRes.data) {
         const comIds = [...new Set(rRes.data.map((r: any) => r.community_id))];
         if (comIds.length > 0) {
@@ -1274,6 +1345,21 @@ export default function AdminPage() {
     toast.success("Review deleted");
   };
 
+  const handleBanCommunity = async (id: string, reason: string) => {
+    if (!window.confirm(`Ban this community? It will be hidden from all users. Reason: ${reason}`)) return;
+    const { error } = await supabase.from("communities").update({ is_active: false }).eq("id", id);
+    if (error) { toast.error("Failed to ban community"); return; }
+    setAdminCommunities(prev => prev.map(c => c.id === id ? { ...c, is_active: false } : c));
+    toast.success("Community banned");
+  };
+
+  const handleRestoreCommunity = async (id: string) => {
+    const { error } = await supabase.from("communities").update({ is_active: true }).eq("id", id);
+    if (error) { toast.error("Failed to restore community"); return; }
+    setAdminCommunities(prev => prev.map(c => c.id === id ? { ...c, is_active: true } : c));
+    toast.success("Community restored");
+  };
+
   const handleDeleteAllContacts = async () => {
     if (!window.confirm(`Delete all ${contactMessages.length} contact message(s)? This cannot be undone.`)) return;
     const { error } = await supabase.from("reviews").delete().eq("page_path", "/_contact_inbox");
@@ -1406,9 +1492,12 @@ export default function AdminPage() {
               <ModerationTab
                 suspensions={suspensions}
                 profiles={profiles}
+                communities={adminCommunities}
                 onLift={handleLiftSuspension}
                 onSuspend={handleSuspendUser}
                 onBan={handleBanUser}
+                onBanCommunity={handleBanCommunity}
+                onRestoreCommunity={handleRestoreCommunity}
               />
             </TabsContent>
             <TabsContent value="appeals">
