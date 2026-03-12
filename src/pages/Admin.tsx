@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
 import { motion } from "framer-motion";
-import { Users, Eye, MessageSquare, Bell, Activity, Trash2, Send, Globe, Shield, Ban, UserX, Check, AlertTriangle, Flag, Wrench, Mail, MailOpen } from "lucide-react";
+import { Users, Eye, MessageSquare, Bell, Activity, Trash2, Send, Globe, Shield, Ban, UserX, Check, AlertTriangle, Flag, Wrench, Mail, MailOpen, Star } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -94,6 +94,16 @@ interface ContactMessage {
   message: string;
   user_id: string | null;
   read: boolean;
+  created_at: string;
+}
+
+interface AdminReview {
+  id: string;
+  author_name: string;
+  content: string;
+  rating: number;
+  page_path: string;
+  user_id: string | null;
   created_at: string;
 }
 
@@ -977,6 +987,96 @@ function ContactsTab({
   );
 }
 
+function ReviewsTab({
+  reviews,
+  onDelete,
+}: {
+  reviews: AdminReview[];
+  onDelete: (id: string) => void;
+}) {
+  const pageLabel = (path: string) => {
+    const map: Record<string, string> = {
+      "/": "Homepage", "/characters": "Characters", "/daos": "Daos",
+      "/cultivation": "Cultivation", "/timeline": "Timeline", "/multiverse": "Multiverse",
+      "/donghua": "Donghua", "/lore": "Lore", "/guide": "Guide",
+      "/artifacts": "Artifacts", "/locations": "Locations",
+    };
+    return map[path] || path;
+  };
+
+  return (
+    <Card className="border-border">
+      <CardHeader>
+        <CardTitle className="font-heading text-lg flex items-center gap-2">
+          <Star size={18} className="text-primary" />
+          All Reviews ({reviews.length})
+        </CardTitle>
+        <CardDescription>User-submitted ratings and feedback across all pages</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {reviews.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No reviews yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Author</TableHead>
+                  <TableHead>Rating</TableHead>
+                  <TableHead>Page</TableHead>
+                  <TableHead className="hidden md:table-cell">Review</TableHead>
+                  <TableHead className="hidden sm:table-cell">Date</TableHead>
+                  <TableHead className="w-16" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reviews.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium text-xs sm:text-sm">{r.author_name}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-0.5">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            key={s}
+                            size={11}
+                            className={s <= r.rating ? "fill-primary text-primary" : "text-muted-foreground/30"}
+                          />
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                        {pageLabel(r.page_path)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="max-w-xs truncate text-sm text-muted-foreground hidden md:table-cell">
+                      {r.content}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground hidden sm:table-cell">
+                      {new Date(r.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onDelete(r.id)}
+                        className="text-destructive hover:text-destructive"
+                        title="Delete review"
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AdminPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -987,13 +1087,14 @@ export default function AdminPage() {
   const [appeals, setAppeals] = useState<Appeal[]>([]);
   const [reports, setReports] = useState<CommunityReport[]>([]);
   const [contactMessages, setContactMessages] = useState<ContactMessage[]>([]);
+  const [adminReviews, setAdminReviews] = useState<AdminReview[]>([]);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [maintenanceEta, setMaintenanceEta] = useState("");
   const [togglingMaintenance, setTogglingMaintenance] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
-      const [pRes, cRes, vRes, pvRes, nRes, sRes, aRes, rRes, cmRes] = await Promise.all([
+      const [pRes, cRes, vRes, pvRes, nRes, sRes, aRes, rRes, cmRes, revRes] = await Promise.all([
         supabase.from("profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("comments").select("*").order("created_at", { ascending: false }),
         supabase.from("active_visitors").select("*"),
@@ -1003,6 +1104,7 @@ export default function AdminPage() {
         supabase.from("appeals").select("*").order("created_at", { ascending: false }),
         supabase.from("community_reports").select("*").order("created_at", { ascending: false }),
         supabase.from("reviews").select("*").eq("page_path", "/_contact_inbox").order("created_at", { ascending: false }),
+        supabase.from("reviews").select("*").neq("page_path", "/_contact_inbox").order("created_at", { ascending: false }),
       ]);
       if (pRes.data) setProfiles(pRes.data as Profile[]);
       if (cRes.data) setComments(cRes.data as Comment[]);
@@ -1012,6 +1114,7 @@ export default function AdminPage() {
       if (sRes.data) setSuspensions(sRes.data as Suspension[]);
       if (aRes.data) setAppeals(aRes.data as Appeal[]);
       if (cmRes.data) setContactMessages((cmRes.data as any[]).map(parseContactReview));
+      if (revRes.data) setAdminReviews(revRes.data as AdminReview[]);
       if (rRes.data) {
         const comIds = [...new Set(rRes.data.map((r: any) => r.community_id))];
         if (comIds.length > 0) {
@@ -1164,6 +1267,13 @@ export default function AdminPage() {
     toast.success("Message deleted");
   };
 
+  const handleDeleteReview = async (id: string) => {
+    const { error } = await supabase.from("reviews").delete().eq("id", id);
+    if (error) { toast.error("Failed to delete review"); return; }
+    setAdminReviews((prev) => prev.filter((r) => r.id !== id));
+    toast.success("Review deleted");
+  };
+
   const handleDeleteAllContacts = async () => {
     if (!window.confirm(`Delete all ${contactMessages.length} contact message(s)? This cannot be undone.`)) return;
     const { error } = await supabase.from("reviews").delete().eq("page_path", "/_contact_inbox");
@@ -1268,6 +1378,7 @@ export default function AdminPage() {
                   )}
                 </TabsTrigger>
                 <TabsTrigger value="notifications" className="gap-1.5 text-xs sm:text-sm"><Bell size={14} /> <span className="hidden sm:inline">Notifications</span><span className="sm:hidden">Notif</span></TabsTrigger>
+                <TabsTrigger value="reviews" className="gap-1.5 text-xs sm:text-sm"><Star size={14} /> <span className="hidden sm:inline">Reviews</span><span className="sm:hidden">Revs</span></TabsTrigger>
                 <TabsTrigger value="inbox" className="gap-1.5 text-xs sm:text-sm">
                   <Mail size={14} /> Inbox
                   {contactMessages.filter((m) => !m.read).length > 0 && (
@@ -1325,6 +1436,9 @@ export default function AdminPage() {
             </TabsContent>
             <TabsContent value="notifications">
               <NotificationsTab notifications={notifications} onDelete={handleDeleteNotification} onSend={handleSendNotification} />
+            </TabsContent>
+            <TabsContent value="reviews">
+              <ReviewsTab reviews={adminReviews} onDelete={handleDeleteReview} />
             </TabsContent>
             <TabsContent value="inbox">
               <ContactsTab
